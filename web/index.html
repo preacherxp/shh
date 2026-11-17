@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Share a password or secret through a link that opens once and is then destroyed.">
+  <title>shh · share a secret once</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <main class="shell">
+    <div class="hero">
+      <header class="masthead">
+        <h1 class="logo">shh<span class="logo-mark">.</span></h1>
+        <p class="tagline">Share a secret once. Then it is gone.</p>
+      </header>
+      <div class="stage" id="stage" aria-hidden="true"><canvas id="scene"></canvas></div>
+    </div>
+
+    <section class="page" aria-label="Secret">
+      <noscript><p>shh encrypts your secret in the browser, so it needs JavaScript to work.</p></noscript>
+
+      <form id="compose" data-view="compose" novalidate hidden>
+        <h2>Write your secret</h2>
+        <label for="secret">Secret</label>
+        <textarea id="secret" rows="4" required autofocus autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="A password, an API key, a recovery code"></textarea>
+
+        <fieldset>
+          <legend>Times it can be opened</legend>
+          <div class="choices">
+            <label><input type="radio" name="opens" value="1" checked>1</label>
+            <label><input type="radio" name="opens" value="2">2</label>
+            <label><input type="radio" name="opens" value="5">5</label>
+            <label><input type="radio" name="opens" value="10">10</label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Destroy it anyway after</legend>
+          <div class="choices">
+            <label><input type="radio" name="ttl" value="300">5 min</label>
+            <label><input type="radio" name="ttl" value="3600">1 hour</label>
+            <label><input type="radio" name="ttl" value="86400" checked>1 day</label>
+            <label><input type="radio" name="ttl" value="604800">7 days</label>
+          </div>
+        </fieldset>
+
+        <label for="passphrase">Passphrase <span class="optional">optional</span></label>
+        <input id="passphrase" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-describedby="passphrase-hint">
+        <p class="hint" id="passphrase-hint">The reader must type it to open the secret. Tell it to them some other way than the link.</p>
+
+        <button type="submit" class="button button-primary">Seal and create link</button>
+      </form>
+
+      <div data-view="sealed" hidden>
+        <h2 tabindex="-1">Sealed</h2>
+        <p id="sealed-text"></p>
+        <label for="link">Link</label>
+        <div class="row">
+          <input id="link" type="text" readonly>
+          <button type="button" class="button button-primary" id="copy-link">Copy</button>
+        </div>
+        <p class="hint" id="sealed-note"></p>
+        <button type="button" class="button" id="again">Share another secret</button>
+      </div>
+
+      <form id="unlock" data-view="locked" novalidate hidden>
+        <h2 tabindex="-1">A secret is waiting</h2>
+        <p id="locked-text">Someone sent you a secret. It can only be opened a limited number of times, so be ready to copy it.</p>
+        <div class="field" id="unlock-passphrase-field" hidden>
+          <label for="unlock-passphrase">Passphrase</label>
+          <input id="unlock-passphrase" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-describedby="unlock-hint">
+          <p class="hint" id="unlock-hint">The sender should have told you this separately.</p>
+        </div>
+        <button type="submit" class="button button-primary">Reveal secret</button>
+      </form>
+
+      <div data-view="revealed" hidden>
+        <h2 tabindex="-1">Here is your secret</h2>
+        <label for="revealed">Secret</label>
+        <textarea id="revealed" rows="5" readonly spellcheck="false"></textarea>
+        <button type="button" class="button button-primary" id="copy-secret">Copy secret</button>
+        <p class="hint" id="revealed-note"></p>
+        <a class="button" href="/">Share a secret of your own</a>
+      </div>
+
+      <div data-view="gone" hidden>
+        <h2 tabindex="-1">Nothing left to read</h2>
+        <p id="gone-text">This secret was already opened, or it expired. Ask the sender to share it again.</p>
+        <a class="button button-primary" href="/">Share a secret</a>
+      </div>
+
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <footer class="foot">
+      <details>
+        <summary>How it works</summary>
+        <p>Your secret is encrypted in this browser before anything is sent. The key stays in the part of the link after the #, which browsers never send to a server, so the server only ever holds scrambled data it cannot read. Once the link has been opened as many times as the sender allowed (once, unless they chose more), that data is deleted.</p>
+      </details>
+      <a href="https://purecode.sh" rel="noreferrer">A Purecode tool</a>
+    </footer>
+  </main>
+</body>
+</html>
