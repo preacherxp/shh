@@ -141,7 +141,7 @@ fieldset {
 }
 
 textarea,
-input[type="text"] {
+input:is([type="text"], [type="password"]) {
   width: 100%;
   min-width: 0;
   padding: 12px;
@@ -160,7 +160,7 @@ textarea {
 }
 ::placeholder { color: var(--ink-soft); opacity: 0.8; }
 textarea:focus-visible,
-input[type="text"]:focus-visible {
+input:is([type="text"], [type="password"]):focus-visible {
   outline: var(--px) solid var(--gold);
   outline-offset: 0;
 }

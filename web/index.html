@@ -43,16 +43,16 @@
         <fieldset>
           <legend>Destroy it anyway after</legend>
           <div class="choices">
-            <label><input type="radio" name="ttl" value="300">5 min</label>
+            <label><input type="radio" name="ttl" value="300" checked>5 min</label>
             <label><input type="radio" name="ttl" value="3600">1 hour</label>
-            <label><input type="radio" name="ttl" value="86400" checked>1 day</label>
+            <label><input type="radio" name="ttl" value="86400">1 day</label>
             <label><input type="radio" name="ttl" value="604800">7 days</label>
           </div>
         </fieldset>
 
-        <label for="passphrase">Passphrase <span class="optional">optional</span></label>
-        <input id="passphrase" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-describedby="passphrase-hint">
-        <p class="hint" id="passphrase-hint">The reader must type it to open the secret. Tell it to them some other way than the link.</p>
+        <label for="passphrase">Passphrase</label>
+        <input id="passphrase" type="password" autocomplete="off" aria-describedby="passphrase-hint">
+        <p class="hint" id="passphrase-hint">Leave this blank to generate a random passphrase. Send it separately from the link, using a channel where you know the recipient.</p>
 
         <button type="submit" class="button button-primary">Seal and create link</button>
       </form>
@@ -66,6 +66,12 @@
           <button type="button" class="button button-primary" id="copy-link">Copy</button>
         </div>
         <p class="hint" id="sealed-note"></p>
+        <label for="share-passphrase">Passphrase to send separately</label>
+        <div class="row">
+          <input id="share-passphrase" type="password" readonly autocomplete="off">
+          <button type="button" class="button" id="copy-passphrase">Copy passphrase</button>
+        </div>
+        <button type="button" class="button" id="toggle-passphrase" aria-controls="share-passphrase" aria-pressed="false">Show passphrase</button>
         <button type="button" class="button" id="again">Share another secret</button>
       </div>
 
@@ -74,10 +80,11 @@
         <p id="locked-text">Someone sent you a secret. It can only be opened a limited number of times, so be ready to copy it.</p>
         <div class="field" id="unlock-passphrase-field" hidden>
           <label for="unlock-passphrase">Passphrase</label>
-          <input id="unlock-passphrase" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-describedby="unlock-hint">
+          <input id="unlock-passphrase" type="password" autocomplete="off" aria-describedby="unlock-hint">
           <p class="hint" id="unlock-hint">The sender should have told you this separately.</p>
         </div>
         <button type="submit" class="button button-primary">Reveal secret</button>
+        <p class="hint">Refreshing clears the link from this tab. Reopen the original message to try again.</p>
       </form>
 
       <div data-view="revealed" hidden>
@@ -85,6 +92,8 @@
         <label for="revealed">Secret</label>
         <textarea id="revealed" rows="5" readonly spellcheck="false"></textarea>
         <button type="button" class="button button-primary" id="copy-secret">Copy secret</button>
+        <button type="button" class="button" id="clear-secret">Clear now</button>
+        <p class="hint">This screen clears after 60 seconds. Copies you make are not erased.</p>
         <p class="hint" id="revealed-note"></p>
         <a class="button" href="/">Share a secret of your own</a>
       </div>

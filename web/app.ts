@@ -1,4 +1,4 @@
-import { MAX_SECRET_BYTES, seal, unlock } from "./crypto";
+import { MAX_SECRET_BYTES, seal, toBase64Url, unlock } from "./crypto";
 import type { SceneMessage, SceneState } from "./scene";
 
 type View = "compose" | "sealed" | "locked" | "revealed" | "gone";
@@ -8,11 +8,15 @@ const secret = el<HTMLTextAreaElement>("secret");
 const passphrase = el<HTMLInputElement>("passphrase");
 const link = el<HTMLInputElement>("link");
 const unlockPassphrase = el<HTMLInputElement>("unlock-passphrase");
+const sharePassphrase = el<HTMLInputElement>("share-passphrase");
 const revealed = el<HTMLTextAreaElement>("revealed");
 const status = el("status");
 
 const TTL_LABELS: Record<string, string> = { "300": "5 minutes", "3600": "1 hour", "86400": "1 day", "604800": "7 days" };
 const LINK = /^#([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{43})(\.p)?$/;
+const hadFragment = !!location.hash;
+let parsed = LINK.exec(location.hash);
+if (hadFragment) history.replaceState(null, "", "/");
 
 // ---- the book ------------------------------------------------------------
 // three.js runs in a worker that only receives the canvas, sizes and the
@@ -125,13 +129,13 @@ compose.addEventListener("submit", async (event) => {
   if (new TextEncoder().encode(secret.value).length > MAX_SECRET_BYTES) return say("That is too long. The limit is 16 KB of text.");
   const ttl = new FormData(compose).get("ttl") as string;
   const opens = Number(new FormData(compose).get("opens"));
-  const hasPassphrase = passphrase.value !== "";
 
   busy(compose, true);
   say("");
   scene({ type: "state", name: "sealing" });
   try {
-    const { linkKey, auth, data } = await seal(secret.value, passphrase.value);
+    const phrase = passphrase.value || toBase64Url(crypto.getRandomValues(new Uint8Array(16)));
+    const { linkKey, auth, data } = await seal(secret.value, phrase);
     const result = await api("/api/secrets", { data, auth, ttl: Number(ttl), opens });
     if (result.status !== 201 || typeof result.body.id !== "string") {
       scene({ type: "state", name: "writing" });
@@ -139,11 +143,12 @@ compose.addEventListener("submit", async (event) => {
     }
     secret.value = "";
     passphrase.value = "";
-    link.value = `${location.origin}/#${result.body.id}.${linkKey}${hasPassphrase ? ".p" : ""}`;
+    link.value = `${location.origin}/#${result.body.id}.${linkKey}.p`;
+    sharePassphrase.value = phrase;
     el("sealed-text").textContent =
       opens === 1 ? "Send this link to one person. It opens once, then the secret is destroyed." : `This link opens ${opens} times, then the secret is destroyed. Everyone who opens it uses one.`;
     el("sealed-note").textContent =
-      `Opened or not, it is destroyed in ${TTL_LABELS[ttl]}.` + (hasPassphrase ? " Remember to tell the reader the passphrase some other way." : "");
+      `Opened or not, it expires in ${TTL_LABELS[ttl]}. Send the passphrase through a different, verified channel.`;
     show("sealed");
   } catch {
     scene({ type: "state", name: "writing" });
@@ -154,15 +159,25 @@ compose.addEventListener("submit", async (event) => {
 });
 
 el("copy-link").addEventListener("click", () => copy(link.value, link));
+el("copy-passphrase").addEventListener("click", () => copy(sharePassphrase.value, sharePassphrase));
+const togglePassphrase = el<HTMLButtonElement>("toggle-passphrase");
+function displayPassphrase(visible: boolean) {
+  sharePassphrase.type = visible ? "text" : "password";
+  togglePassphrase.setAttribute("aria-pressed", String(visible));
+}
+togglePassphrase.addEventListener("click", () => displayPassphrase(sharePassphrase.type === "password"));
 link.addEventListener("focus", () => link.select());
 el("again").addEventListener("click", () => {
   link.value = "";
+  sharePassphrase.value = "";
+  displayPassphrase(false);
+  compose.reset();
   show("compose");
 });
 
 // ---- opening a secret ----------------------------------------------------
 const unlockForm = el<HTMLFormElement>("unlock");
-const parsed = LINK.exec(location.hash);
+let clearTimer: number | undefined;
 
 unlockForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -182,8 +197,9 @@ unlockForm.addEventListener("submit", async (event) => {
       el("revealed-note").textContent = left
         ? `This link can be opened ${left === 1 ? "one more time" : `${left} more times`}. After that the secret is destroyed.`
         : "It has been destroyed on the server. This link will not open again.";
-      if (!left) history.replaceState(null, "", "/"); // the link is dead now; drop the key from the address bar
+      parsed = null;
       show("revealed", left ? "opened" : "revealed");
+      clearTimer = window.setTimeout(clearRevealed, 60_000);
     } else if (result.status === 403 && Number(result.body.remaining) > 0) {
       const left = Number(result.body.remaining);
       scene({ type: "shake" });
@@ -203,10 +219,23 @@ unlockForm.addEventListener("submit", async (event) => {
 });
 
 el("copy-secret").addEventListener("click", () => copy(revealed.value, revealed));
+function clearRevealed() {
+  window.clearTimeout(clearTimer);
+  revealed.value = "";
+  show("compose");
+  say("Secret cleared from this screen.");
+}
+el("clear-secret").addEventListener("click", clearRevealed);
+addEventListener("pagehide", () => {
+  window.clearTimeout(clearTimer);
+  parsed = null;
+  for (const field of [secret, passphrase, link, sharePassphrase, unlockPassphrase, revealed]) field.value = "";
+});
+window.addEventListener("pageshow", (event) => { if (event.persisted) location.reload(); });
 addEventListener("hashchange", () => location.reload());
 
 // ---- start ---------------------------------------------------------------
-if (!location.hash) {
+if (!hadFragment) {
   show("compose");
 } else if (!parsed) {
   el("gone-text").textContent = "This link is incomplete. Ask the sender to copy the whole link again.";
@@ -219,7 +248,7 @@ if (!location.hash) {
       if (opens === 1) el("locked-text").textContent = "Someone sent you a secret. It can be opened only once more and is then destroyed, so be ready to copy it.";
       else if (opens > 1) el("locked-text").textContent = `Someone sent you a secret. It can be opened ${opens} more times and is then destroyed. Opening it now uses one.`;
       show(result.status === 404 ? "gone" : "locked");
-      if (result.status !== 404 && parsed[3]) unlockPassphrase.focus();
+      if (result.status !== 404 && parsed?.[3]) unlockPassphrase.focus();
     },
     () => show("locked"), // offline or blocked: let them try; revealing reports the real error
   );

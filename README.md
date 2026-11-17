@@ -30,8 +30,9 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000). To update, pull the latest 
 ## Usage
 
 1. Paste the text in **Secret**. Choose how many times the link can open and when it expires.
-2. Select **Seal and create link**, copy the link, and send it to the recipient. If you add a passphrase, send it separately.
-3. The recipient opens the link and selects **Reveal secret**. Viewing the reveal screen without selecting the button does not use an open.
+2. By default, the link opens once and expires in five minutes. Leave **Passphrase** blank to generate a random one, or enter your own. Select **Seal and create link**. Send the link and passphrase through separate channels where you can verify the recipient.
+3. The recipient opens the link, enters the passphrase, and selects **Reveal secret**. Loading the page does not use an open. The key leaves the address bar immediately; after refreshing, reopen the original link. Previously issued links without a passphrase still work.
+4. Select **Clear now** when finished. The revealed text also clears after 60 seconds. Neither action erases clipboard copies.
 
 | Key | Action |
 | --- | --- |
@@ -51,9 +52,9 @@ For remote access, put shh behind HTTPS on its own hostname. The browser needs a
 ## Limits
 
 - Secrets are text only, up to 16 KiB encoded as UTF-8. Links expire after 5 minutes, 1 hour, 1 day, or 7 days.
-- Anyone with the link can read it before it expires unless you add a passphrase. Five wrong passphrase attempts destroy the secret.
+- Anyone who receives both the link and its passphrase can read the secret. Five wrong attempts destroy the stored secret. For privileged credentials, prefer individual accounts or password-manager sharing tied to the recipient's identity.
 - Recipients can save or forward plaintext. Deleting the stored ciphertext cannot remove those copies.
-- You still need to trust the host to serve unmodified JavaScript. Browser encryption does not protect against a compromised host or browser.
+- You must trust the host and any TLS-terminating proxy or CDN: each can change the JavaScript that handles passwords. Self-host with HTTPS terminating on your own server if you do not want to extend that trust to a CDN.
 
 ## Architecture
 

@@ -56,6 +56,27 @@ test("a link can allow several opens, and no more", async () => {
   expect((await call(`/api/secrets/${id}/reveal`, { auth: AUTH })).status).toBe(404);
 });
 
+test("two service instances sharing one database honor the same open budget", async () => {
+  const dbPath = join(publicDir, "shared.sqlite");
+  const first = createApp({ publicDir, dbPath });
+  const second = createApp({ publicDir, dbPath });
+  const post = (path: string, body: object) => new Request(`http://shh.test${path}`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  try {
+    const created = await first.fetch(post("/api/secrets", { data: "dGVzdA", ttl: 300, auth: AUTH, opens: 2 }));
+    const { id } = await created.json() as { id: string };
+    const read = (instance: typeof first) => instance.fetch(post(`/api/secrets/${id}/reveal`, { auth: AUTH }));
+    const responses = await Promise.all([read(first), read(second), read(first)]);
+    expect(responses.map(r => r.status).sort()).toEqual([200, 200, 404]);
+    const successful = await Promise.all(responses.filter(r => r.ok).map(r => r.json() as Promise<{ remaining: number }>));
+    expect(successful.map(body => body.remaining).sort()).toEqual([0, 1]);
+  } finally {
+    first.close();
+    second.close();
+  }
+});
+
 test("a multi-open link still expires and still dies after too many wrong passphrases", async () => {
   const guessed = await create({ opens: 5 });
   await call(`/api/secrets/${guessed.id}/reveal`, { auth: AUTH });

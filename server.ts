@@ -88,6 +88,7 @@ export function createApp(options: { dbPath?: string; publicDir?: string; now?: 
   const db = new Database(options.dbPath ?? ":memory:");
   db.exec(`
     PRAGMA secure_delete = ON;
+    PRAGMA busy_timeout = 3000;
     CREATE TABLE IF NOT EXISTS secrets (
       id TEXT PRIMARY KEY,
       data TEXT NOT NULL,
@@ -146,11 +147,8 @@ export function createApp(options: { dbPath?: string; publicDir?: string; now?: 
     return json(201, { id });
   }
 
-  async function reveal(req: Request, id: string): Promise<Response> {
-    const body = await readJson(req);
-    if (!body || typeof body.auth !== "string" || !TOKEN.test(body.auth)) return json(400, { error: "invalid" });
-    const given = sha256(body.auth);
-    // Everything from lookup to delete runs synchronously, so readers cannot take more opens than were allowed.
+  // Take the write lock before checking the counter, including across Bun processes.
+  const consume = db.transaction((id: string, given: Uint8Array) => {
     const row = sql.find.get(id, now());
     if (!row) return json(404, { error: "gone" });
     if (timingSafeEqual(given, row.auth_hash)) {
@@ -162,6 +160,12 @@ export function createApp(options: { dbPath?: string; publicDir?: string; now?: 
     if (remaining <= 0) sql.take.run(id);
     else sql.fail.run(id);
     return json(403, { error: "wrong", remaining: Math.max(0, remaining) });
+  });
+
+  async function reveal(req: Request, id: string): Promise<Response> {
+    const body = await readJson(req);
+    if (!body || typeof body.auth !== "string" || !TOKEN.test(body.auth)) return json(400, { error: "invalid" });
+    return consume.immediate(id, sha256(body.auth));
   }
 
   async function fetch(req: Request, ip = "unknown"): Promise<Response> {
