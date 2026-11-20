@@ -14,6 +14,16 @@ const MAX_OPENS = 10; // how many times the sender may allow a link to be opened
 const ID = /^[A-Za-z0-9_-]{22}$/;
 const TOKEN = /^[A-Za-z0-9_-]{43}$/;
 const DATA = /^[A-Za-z0-9_-]+$/;
+// Sender controls, added to the table in place so a database from an older version keeps working.
+const ADDED_COLUMNS = {
+  sender_hash: "BLOB", // hash of the sender's token; NULL on secrets made before sender controls
+  state: "TEXT NOT NULL DEFAULT 'waiting'", // or how it ended: 'opened', 'destroyed', 'burned'
+  opened: "INTEGER NOT NULL DEFAULT 0",
+  first_open: "INTEGER",
+  last_open: "INTEGER",
+  ended_at: "INTEGER",
+  kept_until: "INTEGER NOT NULL DEFAULT 0", // a tombstone's original expiry
+};
 
 const SECURITY_HEADERS: Record<string, string> = {
   "Content-Security-Policy":
@@ -81,14 +91,19 @@ function limiter(max: number, windowMs: number) {
 }
 
 const sha256 = (text: string) => new Uint8Array(createHash("sha256").update(text).digest());
+const NOBODY = new Uint8Array(32); // compared against when there is no sender token to compare with
 
-export function createApp(options: { dbPath?: string; publicDir?: string; now?: () => number; trustProxy?: boolean } = {}) {
+type Track = { sender_hash: Uint8Array | null; state: string; opened: number; opens_left: number; first_open: number | null; last_open: number | null; ended_at: number | null; expires: number };
+
+export function createApp(options: { dbPath?: string; publicDir?: string; now?: () => number; trustProxy?: boolean; maxSecrets?: number } = {}) {
   const now = options.now ?? Date.now;
+  const maxSecrets = options.maxSecrets ?? MAX_SECRETS;
   const assets = loadAssets(options.publicDir ?? join(import.meta.dir, "dist"));
   const db = new Database(options.dbPath ?? ":memory:");
   db.exec(`
     PRAGMA secure_delete = ON;
     PRAGMA busy_timeout = 3000;
+    PRAGMA journal_mode = DELETE; -- a write-ahead log would keep wiped ciphertext until its next checkpoint
     CREATE TABLE IF NOT EXISTS secrets (
       id TEXT PRIMARY KEY,
       data TEXT NOT NULL,
@@ -98,16 +113,29 @@ export function createApp(options: { dbPath?: string; publicDir?: string; now?: 
       opens_left INTEGER NOT NULL DEFAULT 1
     ) STRICT;
   `);
+  db.transaction(() => {
+    const have = new Set(db.query<{ name: string }, []>("PRAGMA table_info(secrets)").all().map((column) => column.name));
+    for (const [name, type] of Object.entries(ADDED_COLUMNS)) if (!have.has(name)) db.exec(`ALTER TABLE secrets ADD COLUMN ${name} ${type}`);
+  }).immediate();
+  // A tombstone is what is left for the sender once a secret has ended: no ciphertext,
+  // no access proof, only the state and its timestamps. Its expires_at is 0, so every
+  // recipient query (and an older server) sees it as expired; kept_until is its real expiry.
   const sql = {
-    count: db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM secrets"),
-    insert: db.query("INSERT INTO secrets (id, data, auth_hash, expires_at, opens_left) VALUES (?, ?, ?, ?, ?)"),
-    find: db.query<{ data: string; auth_hash: Uint8Array; attempts: number; opens_left: number }, [string, number]>(
-      "SELECT data, auth_hash, attempts, opens_left FROM secrets WHERE id = ? AND expires_at > ?",
+    count: db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM secrets"), // tombstones count too
+    insert: db.query("INSERT INTO secrets (id, data, auth_hash, expires_at, opens_left, sender_hash) VALUES (?, ?, ?, ?, ?, ?)"),
+    find: db.query<{ data: string; auth_hash: Uint8Array; attempts: number; opens_left: number; tracked: number }, [string, number]>(
+      "SELECT data, auth_hash, attempts, opens_left, sender_hash IS NOT NULL AS tracked FROM secrets WHERE id = ? AND expires_at > ?",
     ),
     take: db.query("DELETE FROM secrets WHERE id = ?"),
-    open: db.query("UPDATE secrets SET opens_left = opens_left - 1 WHERE id = ?"),
+    open: db.query("UPDATE secrets SET opens_left = opens_left - 1, opened = opened + 1, first_open = COALESCE(first_open, ?2), last_open = ?2 WHERE id = ?1"),
     fail: db.query("UPDATE secrets SET attempts = attempts + 1 WHERE id = ?"),
-    purge: db.query("DELETE FROM secrets WHERE expires_at <= ?"),
+    end: db.query(
+      "UPDATE secrets SET data = '', auth_hash = zeroblob(0), attempts = 0, opens_left = 0, state = ?2, ended_at = ?3, kept_until = expires_at, expires_at = 0 WHERE id = ?1",
+    ),
+    track: db.query<Track, [string, number]>(
+      "SELECT sender_hash, state, opened, opens_left, first_open, last_open, ended_at, MAX(expires_at, kept_until) AS expires FROM secrets WHERE id = ?1 AND MAX(expires_at, kept_until) > ?2",
+    ),
+    purge: db.query("DELETE FROM secrets WHERE MAX(expires_at, kept_until) <= ?"),
   };
 
   const apiLimit = limiter(120, 60_000);
@@ -141,31 +169,56 @@ export function createApp(options: { dbPath?: string; publicDir?: string; now?: 
     if (typeof opens !== "number" || !Number.isInteger(opens) || opens < 1 || opens > MAX_OPENS) return json(400, { error: "invalid" });
     if (!createLimit.allow(key, now())) return json(429, { error: "slow-down" });
     sql.purge.run(now());
-    if (sql.count.get()!.n >= MAX_SECRETS) return json(503, { error: "full" });
+    if (sql.count.get()!.n >= maxSecrets) return json(503, { error: "full" });
     const id = randomBytes(16).toString("base64url");
-    sql.insert.run(id, data, sha256(auth), now() + ttl * 1000, opens);
-    return json(201, { id });
+    const sender = randomBytes(32).toString("base64url"); // can read the status and destroy, never decrypt
+    sql.insert.run(id, data, sha256(auth), now() + ttl * 1000, opens, sha256(sender));
+    return json(201, { id, sender });
   }
 
   // Take the write lock before checking the counter, including across Bun processes.
   const consume = db.transaction((id: string, given: Uint8Array) => {
     const row = sql.find.get(id, now());
     if (!row) return json(404, { error: "gone" });
+    // Wipe the ciphertext either way; keep a tombstone only if a sender can ask about it.
+    const end = (state: string) => (row.tracked ? sql.end.run(id, state, now()) : sql.take.run(id));
     if (timingSafeEqual(given, row.auth_hash)) {
-      if (row.opens_left <= 1) sql.take.run(id);
-      else sql.open.run(id);
+      if (row.opens_left > 1 || row.tracked) sql.open.run(id, now());
+      if (row.opens_left <= 1) end("opened");
       return json(200, { data: row.data, remaining: Math.max(0, row.opens_left - 1) });
     }
     const remaining = MAX_ATTEMPTS - row.attempts - 1;
-    if (remaining <= 0) sql.take.run(id);
+    if (remaining <= 0) end("burned");
     else sql.fail.run(id);
     return json(403, { error: "wrong", remaining: Math.max(0, remaining) });
+  });
+
+  // The sender's token reads the status and destroys. A wrong token, a secret without one
+  // and a missing secret all get the same answer, and none of them touch the attempt counter.
+  const manage = db.transaction((id: string, given: Uint8Array, destroy: boolean) => {
+    let row = sql.track.get(id, now());
+    const known = timingSafeEqual(given, row?.sender_hash ?? NOBODY);
+    if (!row?.sender_hash || !known) return json(404, { error: "gone" });
+    if (destroy && row.state === "waiting") {
+      sql.end.run(id, "destroyed", now());
+      row = sql.track.get(id, now())!;
+    }
+    return json(200, {
+      state: row.state, opened: row.opened, opensLeft: row.opens_left,
+      firstOpenedAt: row.first_open, lastOpenedAt: row.last_open, endedAt: row.ended_at, expiresAt: row.expires,
+    });
   });
 
   async function reveal(req: Request, id: string): Promise<Response> {
     const body = await readJson(req);
     if (!body || typeof body.auth !== "string" || !TOKEN.test(body.auth)) return json(400, { error: "invalid" });
     return consume.immediate(id, sha256(body.auth));
+  }
+
+  async function sender(req: Request, id: string, destroy: boolean): Promise<Response> {
+    const body = await readJson(req);
+    if (!body || typeof body.sender !== "string" || !TOKEN.test(body.sender)) return json(400, { error: "invalid" });
+    return manage.immediate(id, sha256(body.sender), destroy);
   }
 
   async function fetch(req: Request, ip = "unknown"): Promise<Response> {
@@ -177,9 +230,10 @@ export function createApp(options: { dbPath?: string; publicDir?: string; now?: 
       const key = clientKey(forwarded || ip);
       if (!apiLimit.allow(key, now())) return json(429, { error: "slow-down" });
       if (pathname === "/api/secrets") return req.method === "POST" ? create(req, key) : json(405, { error: "method" });
-      const match = /^\/api\/secrets\/([^/]+)(\/reveal)?$/.exec(pathname);
+      const match = /^\/api\/secrets\/([^/]+)(?:\/(reveal|status|destroy))?$/.exec(pathname);
       if (!match || !ID.test(match[1]!)) return json(404, { error: "gone" });
-      if (match[2]) return req.method === "POST" ? reveal(req, match[1]!) : json(405, { error: "method" });
+      if (match[2] && req.method !== "POST") return json(405, { error: "method" });
+      if (match[2]) return match[2] === "reveal" ? reveal(req, match[1]!) : sender(req, match[1]!, match[2] === "destroy");
       if (req.method !== "GET") return json(405, { error: "method" });
       const waiting = sql.find.get(match[1]!, now());
       return waiting ? json(200, { opens: waiting.opens_left }) : json(404, { error: "gone" });

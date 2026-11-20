@@ -1,5 +1,6 @@
 /node_modules/
 /dist/
+/shh
 /.env
 /.env.*
 *.db

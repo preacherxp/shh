@@ -51,27 +51,52 @@
         </fieldset>
 
         <label for="passphrase">Passphrase</label>
-        <input id="passphrase" type="password" autocomplete="off" aria-describedby="passphrase-hint">
-        <p class="hint" id="passphrase-hint">Leave this blank to generate a random passphrase. Send it separately from the link, using a channel where you know the recipient.</p>
+        <input id="passphrase" type="password" autocomplete="off" aria-describedby="passphrase-hint passphrase-short">
+        <p class="hint" id="passphrase-hint">Leave this blank to generate a random passphrase.</p>
+        <p class="hint" id="passphrase-short" aria-live="polite"></p>
 
         <button type="submit" class="button button-primary">Seal and create link</button>
+        <p class="hint">Your secret is scrambled in this browser before it is sent. The key stays in the link and never reaches the server, which holds only the scrambled text and deletes it once it is opened or expires. Anyone with both the link and the passphrase can read it, so send them separately. <button type="button" class="more" data-opens-shield aria-controls="shield-panel" aria-expanded="false">How it's checked</button></p>
       </form>
 
       <div data-view="sealed" hidden>
-        <h2 tabindex="-1">Sealed</h2>
-        <p id="sealed-text"></p>
-        <label for="link">Link</label>
-        <div class="row">
-          <input id="link" type="text" readonly>
-          <button type="button" class="button button-primary" id="copy-link">Copy</button>
+        <h2 tabindex="-1" id="sealed-title">Sealed</h2>
+        <div class="field" id="share">
+          <p id="sealed-text"></p>
+          <label for="link">Link</label>
+          <div class="row">
+            <input id="link" type="text" readonly>
+            <button type="button" class="button button-primary" id="copy-link">Copy</button>
+          </div>
+          <p class="hint" id="sealed-note"></p>
+          <label for="share-passphrase">Passphrase to send separately</label>
+          <div class="row">
+            <input id="share-passphrase" type="password" readonly autocomplete="off">
+            <button type="button" class="button" id="copy-passphrase">Copy passphrase</button>
+          </div>
+          <button type="button" class="button" id="toggle-passphrase" aria-controls="share-passphrase" aria-pressed="false">Show passphrase</button>
         </div>
-        <p class="hint" id="sealed-note"></p>
-        <label for="share-passphrase">Passphrase to send separately</label>
-        <div class="row">
-          <input id="share-passphrase" type="password" readonly autocomplete="off">
-          <button type="button" class="button" id="copy-passphrase">Copy passphrase</button>
+        <div class="field" id="sender" role="group" aria-labelledby="sender-title">
+          <div class="field" id="sender-keep">
+            <h3 id="sender-title">For you, the sender</h3>
+            <label for="sender-link">Sender's private link (keep it, do not send it)</label>
+            <div class="row">
+              <input id="sender-link" type="text" readonly aria-describedby="sender-hint">
+              <button type="button" class="button" id="copy-sender-link">Copy</button>
+            </div>
+            <p class="hint" id="sender-hint">Open this link later to see whether the secret was opened, or to destroy it early. It cannot open the secret.</p>
+          </div>
+          <p class="track" id="track" role="status" aria-live="polite"></p>
+          <button type="button" class="button button-danger" id="destroy">Destroy now</button>
+          <div class="field" id="destroy-confirm" role="group" aria-labelledby="destroy-question" hidden>
+            <p id="destroy-question">Destroy the secret now? The link stops working for everyone, and this cannot be undone.</p>
+            <div class="pair">
+              <button type="button" class="button" id="destroy-no">Keep it</button>
+              <button type="button" class="button button-danger" id="destroy-yes">Yes, destroy it</button>
+            </div>
+          </div>
+          <p class="hint" id="sender-refresh" hidden>Refreshing clears the link from this tab. Reopen your private link to check again.</p>
         </div>
-        <button type="button" class="button" id="toggle-passphrase" aria-controls="share-passphrase" aria-pressed="false">Show passphrase</button>
         <button type="button" class="button" id="again">Share another secret</button>
       </div>
 
@@ -85,6 +110,7 @@
         </div>
         <button type="submit" class="button button-primary">Reveal secret</button>
         <p class="hint">Refreshing clears the link from this tab. Reopen the original message to try again.</p>
+        <p class="hint">Loading this page did not use up the link. When you reveal it, the secret is unscrambled here in your browser, and the server deletes its copy once the link has no opens left. <button type="button" class="more" data-opens-shield aria-controls="shield-panel" aria-expanded="false">How it's checked</button></p>
       </form>
 
       <div data-view="revealed" hidden>
@@ -108,10 +134,43 @@
     </section>
 
     <footer class="foot">
-      <details>
-        <summary>How it works</summary>
-        <p>Your secret is encrypted in this browser before anything is sent. The key stays in the part of the link after the #, which browsers never send to a server, so the server only ever holds scrambled data it cannot read. Once the link has been opened as many times as the sender allowed (once, unless they chose more), that data is deleted.</p>
-      </details>
+      <div>
+        <button type="button" class="shield" id="shield" data-state="pending" data-opens-shield aria-controls="shield-panel" aria-expanded="false" hidden>
+          <svg class="shield-icon" viewBox="0 0 12 14" width="24" height="28" shape-rendering="crispEdges" aria-hidden="true" focusable="false">
+            <path class="shield-edge" d="M1 1H11V8H10V10H9V11H8V12H7V13H5V12H4V11H3V10H2V8H1Z"/>
+            <path class="shield-fill" d="M2 2H10V8H9V10H8V11H7V12H5V11H4V10H3V8H2Z"/>
+            <path class="shield-tick" d="M3 6H4V7H5V8H6V7H7V6H8V5H9V4H10V6H9V7H8V8H7V9H6V10H5V9H4V8H3Z"/>
+            <path class="shield-bang" d="M5 3H7V8H5ZM5 9H7V11H5Z"/>
+          </svg>
+          <span id="shield-label">Checking this page</span>
+        </button>
+        <section class="shield-panel" id="shield-panel" aria-labelledby="shield-title" hidden>
+          <h2 id="shield-title" tabindex="-1">How this page protects your secret</h2>
+          <div class="shield-groups">
+            <div>
+              <h3>Checked in your browser just now</h3>
+              <ul class="checks" id="checks"></ul>
+              <p id="checks-summary" role="status"></p>
+            </div>
+            <div>
+              <h3>How shh works</h3>
+              <p>Facts about the code, which this page cannot test from the inside.</p>
+              <ul class="facts">
+                <li>Encryption is AES-256-GCM from the browser's built-in Web Crypto. The key comes from 32 random bytes in the link and from the passphrase (PBKDF2, 600,000 rounds).</li>
+                <li>Those bytes are the part of the link after the #. Browsers do not send that part to servers, and this page takes it out of the address bar as it loads.</li>
+                <li>The server stores the ciphertext, padded to hide its length, and a hash proving a reader holds the key. It wipes both after the last open, when the sender destroys the secret, or within a minute of expiry.</li>
+                <li>Five wrong passphrases destroy the secret.</li>
+                <li>Until the link would have expired, the server keeps whether and when it was opened or destroyed, for the sender. It keeps nothing about the reader.</li>
+                <li>shh's server writes no request logs. A proxy or CDN in front of it may keep its own.</li>
+                <li>The book animation runs in a worker with no network access and is never given the secret, the link or the passphrase.</li>
+              </ul>
+            </div>
+          </div>
+          <p>This page cannot prove that whoever served it left it unchanged: an altered copy could show these same checks. To check, <a href="https://github.com/preacherxp/shh#verify-the-live-site" rel="noreferrer">compare this site with the public source</a>. To avoid loading code from a server at all, use the <a href="https://github.com/preacherxp/shh#command-line-client" rel="noreferrer">command line client</a>.</p>
+          <p id="shield-route"></p>
+          <button type="button" class="more" id="shield-close">Close</button>
+        </section>
+      </div>
       <a href="https://purecode.sh" rel="noreferrer">A Purecode tool</a>
     </footer>
   </main>

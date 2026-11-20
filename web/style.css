@@ -26,6 +26,8 @@
   --leather-dark: #4a1a26;
   --gold: #e8b44c;
   --danger: #a3341a;
+  --gem: #58d8c8; /* a passed check, on the night background */
+  --ember: #f0702c; /* a failed one */
   --px: 4px; /* one "pixel" of the UI */
   --display: "Jersey 15", ui-monospace, monospace; /* headings, labels, buttons */
   --body: "VT323", ui-monospace, monospace; /* sentences */
@@ -33,6 +35,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; } /* hidden wins over any display set below */
 
 html {
   background-color: var(--night);
@@ -116,6 +119,12 @@ h2 {
   font: 400 40px/1 var(--display);
 }
 h2:focus { outline: none; }
+h3 { font: 400 28px/1 var(--display); }
+.page h3 {
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: var(--px) dotted var(--ink-soft);
+}
 p { margin: 0; }
 
 label, legend {
@@ -133,6 +142,7 @@ label, legend {
   line-height: 1.25;
   color: var(--ink-soft);
 }
+.hint:empty { display: none; }
 fieldset {
   border: 0;
   margin: 0;
@@ -231,16 +241,37 @@ input:is([type="text"], [type="password"]):focus-visible {
   cursor: progress;
   filter: saturate(0.4) brightness(0.9);
 }
+.button-danger {
+  background: var(--danger);
+  color: var(--parchment-light);
+  box-shadow: inset 0 calc(var(--px) * -1) 0 0 var(--leather-dark);
+}
 
 .row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
 }
-.row .button {
+.row .button,
+.pair .button {
   width: auto;
   margin: 0;
 }
+.pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+/* the sender's status line */
+.track {
+  padding: 8px 12px;
+  border: var(--px) solid var(--ink);
+  background: var(--parchment-light);
+  font-size: 22px;
+  line-height: 1.15;
+}
+.track:empty { display: none; }
 
 .status {
   margin-top: 12px;
@@ -251,18 +282,118 @@ input:is([type="text"], [type="password"]):focus-visible {
 .status.is-good { color: #33602f; }
 .status:empty { display: none; }
 
+/* a button that reads as a link, inside a sentence */
+.more {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.more:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+.page .more:focus-visible { outline-color: var(--ink); }
+
 /* footer */
 .foot {
   display: grid;
   gap: 12px;
   color: var(--parchment-dark);
 }
-.foot summary { cursor: pointer; }
-.foot details p { margin-top: 8px; max-width: 62ch; }
 .foot a { color: inherit; }
 .foot :focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 2px;
+}
+
+/* the shield: hollow until the checks have run, filled only by their result */
+.shield {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.shield:hover { color: var(--parchment); }
+.shield-icon { flex: none; }
+.shield-edge { fill: currentColor; }
+.shield-fill { fill: var(--night); }
+.shield-tick,
+.shield-bang {
+  display: none;
+  fill: var(--night);
+}
+.shield[data-state="pass"] .shield-fill { fill: var(--gem); }
+.shield[data-state="pass"] .shield-tick { display: inline; }
+.shield[data-state="fail"] .shield-fill { fill: var(--ember); }
+.shield[data-state="fail"] .shield-bang { display: inline; }
+
+.shield-panel:not([hidden]) {
+  display: grid;
+  gap: 12px;
+  max-width: 62ch;
+  margin: 16px var(--px) var(--px);
+  padding: 16px;
+  background: var(--night);
+  color: var(--parchment);
+  font-size: 18px;
+  line-height: 1.25;
+  box-shadow:
+    0 calc(var(--px) * -1) 0 0 var(--parchment-dark),
+    0 var(--px) 0 0 var(--parchment-dark),
+    calc(var(--px) * -1) 0 0 0 var(--parchment-dark),
+    var(--px) 0 0 0 var(--parchment-dark);
+}
+.shield-panel h2 { font-size: 32px; }
+.shield-panel h2:focus-visible { outline: none; } /* like the other headings that receive focus when a view opens */
+.shield-panel h3 {
+  margin: 0;
+  font-size: 24px;
+  color: var(--parchment-light);
+}
+.shield-groups,
+.shield-groups > div {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.shield-panel p:empty { display: none; }
+.shield-panel .more { justify-self: start; }
+.checks,
+.facts {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.checks li {
+  display: grid;
+  grid-template-columns: 9ch minmax(0, 1fr);
+  gap: 8px;
+}
+.verdict {
+  font: 400 20px/1.1 var(--display);
+  color: var(--parchment-dark);
+}
+.checks [data-outcome="pass"] .verdict { color: var(--gem); }
+.checks [data-outcome="fail"] .verdict { color: var(--ember); }
+.checks [data-outcome="fail"] { color: var(--parchment-light); }
+.facts li {
+  padding-left: 16px;
+  background: linear-gradient(var(--parchment-dark), var(--parchment-dark)) 0 8px / var(--px) var(--px) no-repeat;
+}
+@media (max-width: 480px) {
+  .checks li { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }
 
 @media (min-width: 900px) {
@@ -279,6 +410,8 @@ input:is([type="text"], [type="password"]):focus-visible {
   .stage { height: 440px; }
   .page { padding: 28px 24px 24px; }
   .foot { grid-column: 1 / -1; grid-template-columns: 1fr auto; align-items: start; }
+  .shield-panel:not([hidden]) { max-width: none; }
+  .shield-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 32px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,12 +1,22 @@
 // Bundles the browser code and copies static files into dist.
-import { cp, mkdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+// `bun build.ts` writes dist/; `bun build.ts <directory>` writes a new or empty directory instead.
+// The output depends only on the sources, the locked dependencies and the Bun version.
+import { cp, mkdir, readdir, rm } from "node:fs/promises";
+import { join, resolve } from "node:path";
 
 const root = import.meta.dir;
-const out = join(root, "dist");
+const out = process.argv[2] ? resolve(process.argv[2]) : join(root, "dist");
 const modules = join(root, "node_modules");
 
-await rm(out, { recursive: true, force: true });
+if (process.argv[2]) {
+  // Only dist/ is ever emptied: a directory named by hand must not hold anything yet.
+  if ((await readdir(out).catch(() => [])).length > 0) {
+    console.error("The output directory is not empty.");
+    process.exit(1);
+  }
+} else {
+  await rm(out, { recursive: true, force: true });
+}
 await mkdir(out, { recursive: true });
 
 const result = await Bun.build({
